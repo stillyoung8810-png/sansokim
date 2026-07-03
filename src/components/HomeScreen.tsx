@@ -1,9 +1,20 @@
-import React from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { InlineAd } from "@apps-in-toss/framework";
+import React, { useCallback, useRef } from "react";
+import { Pressable, StyleSheet, Text, type ViewStyle, View } from "react-native";
 
+import {
+  SANSOKIM_HOME_BOX_IMAGE_BANNER_AD_GROUP_ID,
+  SANSOKIM_HOME_IMAGE_BANNER_HEIGHT,
+  SANSOKIM_HOME_STATUS_PHRASE_BANNER_AD_GROUP_ID,
+} from "../constants/sansokimBannerAds";
 import { SANSOKIM_POLICY } from "../domain/sansokimPolicy";
-import { getNextBoxRemainingMs } from "../domain/sansokimRewardPolicy";
+import {
+  getNextBoxAccrualProgress,
+  getNextBoxRemainingMs,
+} from "../domain/sansokimRewardPolicy";
 import type { RewardAppState } from "../rewardApp";
+import { ProgressGauge } from "./ProgressGauge";
+import { RewardBox, type RewardBoxHandle } from "./RewardBox";
 
 type HomeScreenProps = {
   readonly appState: RewardAppState;
@@ -15,6 +26,11 @@ type HomeScreenProps = {
   readonly onTapBox: () => void;
 };
 
+type HomeBannerAdCardProps = {
+  readonly adGroupId: string;
+  readonly slotStyle?: ViewStyle;
+};
+
 export function HomeScreen({
   appState,
   nowMs,
@@ -24,6 +40,7 @@ export function HomeScreen({
   onRequestBoost,
   onTapBox,
 }: HomeScreenProps) {
+  const rewardBoxRef = useRef<RewardBoxHandle>(null);
   const rewardState = appState.rewardState;
   const hasOpportunity = appState.boxOpenOpportunity != null;
   const isAdRequesting =
@@ -36,6 +53,7 @@ export function HomeScreen({
   const isOpportunityButtonDisabled = hasOpportunity || isAdRequesting;
   const isBoostButtonDisabled = isAdRequesting || appState.isBoxOpenCrediting;
   const nextBoxRemainingMs = getNextBoxRemainingMs(rewardState, nowMs);
+  const nextBoxAccrualProgress = getNextBoxAccrualProgress(rewardState, nowMs);
   const boostRemainingMs =
     rewardState.boostEndsAtMs == null
       ? 0
@@ -52,15 +70,19 @@ export function HomeScreen({
     availableBoxCount: rewardState.availableBoxCount,
     dailyPaidTossPoint: rewardState.dailyPaidTossPoint,
   });
+  const handleRewardBoxPress = useCallback(() => {
+    rewardBoxRef.current?.animateBoxTap();
+    onTapBox();
+  }, [onTapBox]);
 
   return (
     <View style={styles.section}>
       <View style={styles.heroCard}>
         <View style={styles.heroHeader}>
-          <View>
-            <Text style={styles.eyebrow}>오늘의 산소</Text>
+          <View style={styles.heroTextBlock}>
+            <Text style={styles.eyebrow}>🫧 오늘의 산소</Text>
             <Text style={styles.heroTitle}>
-              다음 산소 상자까지 {formatDuration(nextBoxRemainingMs)}
+              다음 상자까지 {formatDuration(nextBoxRemainingMs)}
             </Text>
           </View>
           <Pressable
@@ -75,23 +97,16 @@ export function HomeScreen({
             <Text style={styles.refreshButtonText}>갱신</Text>
           </Pressable>
         </View>
+        <ProgressGauge
+          progress={nextBoxAccrualProgress}
+          style={styles.heroGauge}
+        />
         <Text style={styles.heroDescription}>
           현재 산소 상자가 차곡차곡 쌓이고 있어요
         </Text>
       </View>
 
-      <View style={styles.statusGrid}>
-        <StatusCard
-          label="보유 상자"
-          value={`${rewardState.availableBoxCount}개`}
-          description={`${SANSOKIM_POLICY.maxStoredBoxCount}개까지 보관할 수 있어요`}
-        />
-        <StatusCard
-          label="오늘 받은 토스 포인트"
-          value={`${rewardState.dailyPaidTossPoint}원 / ${SANSOKIM_POLICY.maxDailyTossPoint}원`}
-          description="매일 자정 기준으로 다시 받을 수 있어요"
-        />
-      </View>
+      <HomeBannerAdCard adGroupId={SANSOKIM_HOME_STATUS_PHRASE_BANNER_AD_GROUP_ID} />
 
       <View style={styles.card}>
         <View style={styles.cardHeader}>
@@ -112,28 +127,27 @@ export function HomeScreen({
           </Pressable>
         </View>
 
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="산소 상자 열기"
-          accessibilityState={{ disabled: !isBoxEnabled }}
-          disabled={!isBoxEnabled}
-          onPress={onTapBox}
-          style={({ pressed }) => [
+        <View
+          style={[
             styles.boxArea,
-            isBoxEnabled ? styles.boxAreaEnabled : styles.boxAreaDisabled,
-            pressed && isBoxEnabled ? styles.boxAreaPressed : null,
+            styles.boxAreaEnabled,
           ]}
         >
-          <View style={styles.boxShape}>
-            <View style={styles.boxLid} />
-            <View style={styles.boxBody}>
-              <Text style={styles.boxText}>산소</Text>
-            </View>
-          </View>
+          <RewardBox
+            ref={rewardBoxRef}
+            disabled={!isBoxEnabled}
+            showPing={hasOpportunity}
+            onPress={handleRewardBoxPress}
+          />
           <Text style={styles.boxCountText}>x{rewardState.availableBoxCount}</Text>
           <Text style={styles.boxHelpText}>{boxHelpText}</Text>
-        </Pressable>
+        </View>
       </View>
+
+      <HomeBannerAdCard
+        adGroupId={SANSOKIM_HOME_BOX_IMAGE_BANNER_AD_GROUP_ID}
+        slotStyle={styles.imageBannerSlot}
+      />
 
       <View style={styles.card}>
         <Text style={styles.cardTitle}>상자와 부스트</Text>
@@ -141,7 +155,7 @@ export function HomeScreen({
           상자 1개를 열면 토스 포인트 1원이 지급돼요
         </Text>
         <Text style={styles.cardDescription}>
-          오늘은 최대 100원까지 받을 수 있어요
+          {`오늘은 최대 ${SANSOKIM_POLICY.maxDailyTossPoint}원까지 받을 수 있어요`}
         </Text>
         <Text style={styles.boostText}>{boostStatus}</Text>
         <View style={styles.actionColumn}>
@@ -190,20 +204,16 @@ export function HomeScreen({
   );
 }
 
-function StatusCard({
-  label,
-  value,
-  description,
-}: {
-  readonly label: string;
-  readonly value: string;
-  readonly description: string;
-}) {
+function HomeBannerAdCard({ adGroupId, slotStyle }: HomeBannerAdCardProps) {
   return (
-    <View style={styles.statusCard}>
-      <Text style={styles.statusLabel}>{label}</Text>
-      <Text style={styles.statusValue}>{value}</Text>
-      <Text style={styles.statusDescription}>{description}</Text>
+    <View style={styles.adCard}>
+      <View style={[styles.adSlot, slotStyle]}>
+        <InlineAd
+          adGroupId={adGroupId}
+          variant="card"
+          impressFallbackOnMount={true}
+        />
+      </View>
     </View>
   );
 }
@@ -258,15 +268,19 @@ const styles = StyleSheet.create({
     backgroundColor: "#E8F7FF",
   },
   heroHeader: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    justifyContent: "space-between",
-    gap: 14,
+    position: "relative",
+    alignItems: "center",
+    justifyContent: "center",
+    minHeight: 40,
+  },
+  heroTextBlock: {
+    alignItems: "center",
   },
   eyebrow: {
     fontSize: 14,
     fontWeight: "800",
     color: "#3182F6",
+    textAlign: "center",
   },
   heroTitle: {
     marginTop: 8,
@@ -274,14 +288,22 @@ const styles = StyleSheet.create({
     lineHeight: 34,
     fontWeight: "900",
     color: "#191F28",
+    textAlign: "center",
+  },
+  heroGauge: {
+    marginTop: 14,
   },
   heroDescription: {
     marginTop: 10,
     fontSize: 15,
     lineHeight: 22,
     color: "#4E5968",
+    textAlign: "center",
   },
   refreshButton: {
+    position: "absolute",
+    top: 0,
+    right: 0,
     paddingVertical: 8,
     paddingHorizontal: 12,
     borderRadius: 999,
@@ -292,32 +314,18 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     color: "#3182F6",
   },
-  statusGrid: {
-    flexDirection: "row",
-    gap: 10,
-  },
-  statusCard: {
-    flex: 1,
-    padding: 16,
-    borderRadius: 22,
+  adCard: {
+    borderRadius: 24,
+    borderWidth: 1,
+    borderColor: "#E5E8EB",
     backgroundColor: "#FFFFFF",
+    overflow: "hidden",
   },
-  statusLabel: {
-    fontSize: 13,
-    fontWeight: "800",
-    color: "#8B95A1",
+  adSlot: {
+    width: "100%",
   },
-  statusValue: {
-    marginTop: 8,
-    fontSize: 20,
-    fontWeight: "900",
-    color: "#191F28",
-  },
-  statusDescription: {
-    marginTop: 6,
-    fontSize: 12,
-    lineHeight: 18,
-    color: "#8B95A1",
+  imageBannerSlot: {
+    height: SANSOKIM_HOME_IMAGE_BANNER_HEIGHT,
   },
   card: {
     padding: 18,
@@ -362,38 +370,6 @@ const styles = StyleSheet.create({
   boxAreaEnabled: {
     borderColor: "#3182F6",
     backgroundColor: "#F4FAFF",
-  },
-  boxAreaDisabled: {
-    borderColor: "#E5E8EB",
-    backgroundColor: "#F9FAFB",
-  },
-  boxAreaPressed: {
-    transform: [{ scale: 0.98 }],
-  },
-  boxShape: {
-    width: 104,
-    alignItems: "center",
-  },
-  boxLid: {
-    width: 96,
-    height: 24,
-    borderRadius: 10,
-    backgroundColor: "#7AC8FF",
-  },
-  boxBody: {
-    alignItems: "center",
-    justifyContent: "center",
-    width: 84,
-    height: 64,
-    marginTop: -4,
-    borderBottomLeftRadius: 16,
-    borderBottomRightRadius: 16,
-    backgroundColor: "#3182F6",
-  },
-  boxText: {
-    fontSize: 16,
-    fontWeight: "900",
-    color: "#FFFFFF",
   },
   boxCountText: {
     marginTop: 12,

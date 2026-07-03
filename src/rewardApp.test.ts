@@ -12,6 +12,7 @@ import {
   restoreRewardAppState,
   startBoostRequest,
   startBoxOpenOpportunityRequest,
+  submitAttendanceForBoxReward,
   tapBoxForPayoutWithGateway,
   tapBoxForMockPayout,
   type RewardAppState,
@@ -21,6 +22,7 @@ function createReadyState(params: {
   readonly nowMs?: number;
   readonly availableBoxCount?: number;
   readonly dailyPaidTossPoint?: number;
+  readonly attendedDatesKst?: readonly string[];
   readonly hasOpportunity?: boolean;
 }): RewardAppState {
   const nowMs = params.nowMs ?? 0;
@@ -28,6 +30,7 @@ function createReadyState(params: {
     ...createInitialStoredRewardState({ nowMs }),
     availableBoxCount: params.availableBoxCount ?? 0,
     dailyPaidTossPoint: params.dailyPaidTossPoint ?? 0,
+    attendedDatesKst: params.attendedDatesKst ?? [],
   };
 
   return createInitialRewardAppState({
@@ -116,7 +119,79 @@ describe("rewardApp", () => {
     expect(state.rewardState.anonymousHash).toBe("mock-sansokim-user");
     expect(state.rewardState.availableBoxCount).toBe(0);
     expect(state.rewardState.dailyPaidTossPoint).toBe(0);
+    expect(state.rewardState.attendedDatesKst).toEqual([]);
     expect(state.boxOpenOpportunity).toBeNull();
+  });
+
+  it("restores legacy reward state without attendance fields", () => {
+    const state = restoreRewardAppState({
+      rawRewardState: {
+        ...createInitialStoredRewardState({
+          anonymousHash: "mock-sansokim-user",
+          nowMs: 0,
+        }),
+        attendedDatesKst: undefined,
+      },
+      rawBoxOpenOpportunity: null,
+      nowMs: 0,
+    });
+
+    expect(state.rewardState.attendedDatesKst).toEqual([]);
+  });
+
+  it("applies local attendance by adding one box and marking today", () => {
+    const result = submitAttendanceForBoxReward(createReadyState({}), 0);
+
+    expect(result.type).toBe("applied");
+    if (result.type !== "applied") {
+      throw new Error("Attendance should be applied");
+    }
+    expect(result.state.rewardState.availableBoxCount).toBe(1);
+    expect(result.state.rewardState.attendedDatesKst).toEqual(["1970-01-01"]);
+    expect(result.state.bannerMessage).toBe(
+      "출석 완료! 산소 상자 1개가 추가됐어요.",
+    );
+  });
+
+  it("blocks duplicate local attendance without adding boxes", () => {
+    const result = submitAttendanceForBoxReward(
+      createReadyState({
+        availableBoxCount: 3,
+        attendedDatesKst: ["1970-01-01"],
+      }),
+      0,
+    );
+
+    expect(result.type).toBe("blocked");
+    if (result.type !== "blocked") {
+      throw new Error("Attendance should be blocked");
+    }
+    expect(result.reason).toBe("alreadyAttended");
+    expect(result.state.rewardState.availableBoxCount).toBe(3);
+    expect(result.state.rewardState.attendedDatesKst).toEqual(["1970-01-01"]);
+    expect(result.state.bannerMessage).toBe("오늘은 이미 출석했어요.");
+  });
+
+  it("blocks local attendance when box storage is full without marking today", () => {
+    const result = submitAttendanceForBoxReward(
+      createReadyState({
+        availableBoxCount: SANSOKIM_POLICY.maxStoredBoxCount,
+      }),
+      0,
+    );
+
+    expect(result.type).toBe("blocked");
+    if (result.type !== "blocked") {
+      throw new Error("Attendance should be blocked");
+    }
+    expect(result.reason).toBe("boxStorageFull");
+    expect(result.state.rewardState.availableBoxCount).toBe(
+      SANSOKIM_POLICY.maxStoredBoxCount,
+    );
+    expect(result.state.rewardState.attendedDatesKst).toEqual([]);
+    expect(result.state.bannerMessage).toBe(
+      "보유 상자가 가득 차서 출석 보상을 받을 수 없어요.",
+    );
   });
 
   it("grants a mock box open opportunity", () => {

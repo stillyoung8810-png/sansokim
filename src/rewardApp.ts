@@ -10,6 +10,7 @@ import {
 import { SANSOKIM_POLICY } from "./domain/sansokimPolicy";
 import {
   accrueBoxes,
+  applyAttendanceBoxReward,
   applyBoostAfterRewardAd,
   applyBoxOpenRewardSuccess,
   createInitialRewardState,
@@ -52,6 +53,7 @@ export type RewardAppState = {
   readonly isBoxOpenOpportunityRequesting: boolean;
   readonly isBoostRequesting: boolean;
   readonly isBoxOpenCrediting: boolean;
+  readonly isAttendanceSubmitting: boolean;
   readonly bannerMessage: string | null;
 };
 
@@ -106,6 +108,14 @@ export type GatewayBoostResult =
   | {
       readonly type: "failed";
       readonly reason: "adLoadFailed" | "adNotCompleted";
+      readonly state: RewardAppState;
+    };
+
+export type AttendanceBoxRewardSubmitResult =
+  | { readonly type: "applied"; readonly state: RewardAppState }
+  | {
+      readonly type: "blocked";
+      readonly reason: "busy" | "alreadyAttended" | "boxStorageFull";
       readonly state: RewardAppState;
     };
 
@@ -170,6 +180,7 @@ export function createInitialRewardAppState(params: {
     isBoxOpenOpportunityRequesting: false,
     isBoostRequesting: false,
     isBoxOpenCrediting: false,
+    isAttendanceSubmitting: false,
     bannerMessage: null,
   };
 }
@@ -269,6 +280,62 @@ export function openPointScreen(state: RewardAppState): RewardAppState {
     ...state,
     currentScreen: "point",
     bannerMessage: null,
+  };
+}
+
+export function submitAttendanceForBoxReward(
+  state: RewardAppState,
+  nowMs: number,
+): AttendanceBoxRewardSubmitResult {
+  const refreshedState = refreshRewardAppState(state, nowMs);
+
+  if (
+    isRewardAdBusy(refreshedState) ||
+    refreshedState.isBoxOpenCrediting ||
+    refreshedState.isAttendanceSubmitting
+  ) {
+    return {
+      type: "blocked",
+      reason: "busy",
+      state: {
+        ...refreshedState,
+        bannerMessage: "이미 처리 중인 요청이 있어요.",
+      },
+    };
+  }
+
+  const attendanceResult = applyAttendanceBoxReward(
+    refreshedState.rewardState,
+    nowMs,
+  );
+
+  if (attendanceResult.type === "blocked") {
+    return {
+      type: "blocked",
+      reason: attendanceResult.reason,
+      state: {
+        ...refreshedState,
+        rewardState: toStoredRewardState({
+          previousState: refreshedState.rewardState,
+          rewardState: attendanceResult.state,
+          savedAt: new Date(nowMs).toISOString(),
+        }),
+        bannerMessage: getAttendanceBlockedMessage(attendanceResult.reason),
+      },
+    };
+  }
+
+  return {
+    type: "applied",
+    state: {
+      ...refreshedState,
+      rewardState: toStoredRewardState({
+        previousState: refreshedState.rewardState,
+        rewardState: attendanceResult.state,
+        savedAt: new Date(nowMs).toISOString(),
+      }),
+      bannerMessage: "출석 완료! 산소 상자 1개가 추가됐어요.",
+    },
   };
 }
 
@@ -832,6 +899,10 @@ function sanitizeRewardState(rawValue: Record<string, unknown>, nowMs: number): 
       SANSOKIM_POLICY.maxDailyBoostUseCount,
       fallbackState.dailyBoostUsedCount,
     ),
+    attendedDatesKst: sanitizeAttendedDatesKst(
+      rawValue.attendedDatesKst,
+      sanitizeString(rawValue.stateDateKst, getKstDateString(nowMs)),
+    ),
     lastAccruedAtMs: sanitizeFiniteNumber(rawValue.lastAccruedAtMs, nowMs),
     boostEndsAtMs: sanitizeNullableFiniteNumber(rawValue.boostEndsAtMs),
     accrualRemainderBoxUnits: clampNumber(
@@ -854,6 +925,27 @@ function sanitizeCompletedRewardKeys(value: unknown): readonly string[] {
     .slice(-SANSOKIM_POLICY.maxCompletedRewardKeyCount);
 }
 
+function sanitizeAttendedDatesKst(
+  value: unknown,
+  stateDateKst: string,
+): readonly string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  const stateYearMonth = stateDateKst.slice(0, 7);
+  const uniqueDates = new Set(
+    value.filter(
+      (date): date is string =>
+        typeof date === "string" &&
+        /^\d{4}-\d{2}-\d{2}$/.test(date) &&
+        date.slice(0, 7) === stateYearMonth,
+    ),
+  );
+
+  return [...uniqueDates].sort();
+}
+
 function createMockTossSuccessKey(params: {
   readonly opportunity: BoxOpenOpportunity;
 }): string {
@@ -870,6 +962,19 @@ function getBoxOpenBlockedMessage(
       return "오늘 받을 수 있는 토스 포인트를 모두 받았어요.";
     case "duplicateReward":
       return "이미 처리된 상자 열기예요.";
+    default:
+      return assertNever(reason);
+  }
+}
+
+function getAttendanceBlockedMessage(
+  reason: "alreadyAttended" | "boxStorageFull",
+): string {
+  switch (reason) {
+    case "alreadyAttended":
+      return "오늘은 이미 출석했어요.";
+    case "boxStorageFull":
+      return "보유 상자가 가득 차서 출석 보상을 받을 수 없어요.";
     default:
       return assertNever(reason);
   }

@@ -1,9 +1,11 @@
 import { createRoute } from "@granite-js/react-native";
+import { Txt } from "@toss/tds-react-native";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { ScrollView, StyleSheet, Text, View } from "react-native";
 
 import { createTossPointPromotionGateway } from "../adapters/tossPointPromotionGateway";
 import type { TossPointPromotionGateway } from "../adapters/tossPointPromotionGateway";
+import { createTossInterstitialAdGateway } from "../adapters/tossInterstitialAdGateway";
 import { createTossRewardAdGateway } from "../adapters/tossRewardAdGateway";
 import {
   getSansokimRuntimePromotionCode,
@@ -24,6 +26,7 @@ import {
   refreshRewardAppState,
   startBoostRequest,
   startBoxOpenOpportunityRequest,
+  submitAttendanceForBoxReward,
   tapBoxForPayoutWithGateway,
   type RewardAppState,
 } from "../rewardApp";
@@ -56,6 +59,9 @@ function Page() {
   const boostRewardAdGatewayRef = useRef(
     createTossRewardAdGateway(sansokimRewardAdConfig.boostAdGroupId),
   );
+  const attendanceInterstitialAdGatewayRef = useRef(
+    createTossInterstitialAdGateway(),
+  );
   const promotionGatewayRef = useRef<TossPointPromotionGateway>(
     createPromotionGateway(),
   );
@@ -78,6 +84,25 @@ function Page() {
     setNowMs(currentNowMs);
     await applyAndPersistState(refreshRewardAppState(appState, currentNowMs));
   }, [appState, applyAndPersistState]);
+
+  const preloadBoxOpenOpportunityRewardAd = useCallback(() => {
+    void boxOpenOpportunityRewardAdGatewayRef.current.load();
+  }, []);
+
+  const preloadAttendanceInterstitialAd = useCallback(() => {
+    void attendanceInterstitialAdGatewayRef.current.preloadNext();
+  }, []);
+
+  const showAttendanceInterstitialAfterReward = useCallback(async () => {
+    const preloadResult =
+      await attendanceInterstitialAdGatewayRef.current.preloadNext();
+
+    if (preloadResult.type !== "loaded") {
+      return;
+    }
+
+    await attendanceInterstitialAdGatewayRef.current.showPreloaded();
+  }, []);
 
   const handleGrantBoxOpenOpportunity = useCallback(async () => {
     if (actionInFlightRef.current) {
@@ -105,8 +130,9 @@ function Page() {
       await applyAndPersistState(result.state);
     } finally {
       actionInFlightRef.current = false;
+      preloadBoxOpenOpportunityRewardAd();
     }
-  }, [appState, applyAndPersistState]);
+  }, [appState, applyAndPersistState, preloadBoxOpenOpportunityRewardAd]);
 
   const handleApplyBoost = useCallback(async () => {
     if (actionInFlightRef.current) {
@@ -158,6 +184,31 @@ function Page() {
       actionInFlightRef.current = false;
     }
   }, [appState, applyAndPersistState]);
+
+  const handleSubmitAttendance = useCallback(async () => {
+    if (actionInFlightRef.current) {
+      return;
+    }
+
+    const currentNowMs = Date.now();
+    setNowMs(currentNowMs);
+    actionInFlightRef.current = true;
+    setAppState({
+      ...appState,
+      isAttendanceSubmitting: true,
+      bannerMessage: null,
+    });
+
+    try {
+      const result = submitAttendanceForBoxReward(appState, currentNowMs);
+      await applyAndPersistState(result.state);
+      if (result.type === "applied") {
+        await showAttendanceInterstitialAfterReward();
+      }
+    } finally {
+      actionInFlightRef.current = false;
+    }
+  }, [appState, applyAndPersistState, showAttendanceInterstitialAfterReward]);
 
   useEffect(() => {
     let isActive = true;
@@ -225,11 +276,50 @@ function Page() {
     };
   }, []);
 
+  useEffect(() => {
+    if (appState.restoreStatus !== "ready" || appState.currentScreen !== "home") {
+      return;
+    }
+
+    preloadBoxOpenOpportunityRewardAd();
+  }, [
+    appState.currentScreen,
+    appState.restoreStatus,
+    preloadBoxOpenOpportunityRewardAd,
+  ]);
+
+  useEffect(() => {
+    if (
+      appState.restoreStatus !== "ready" ||
+      appState.currentScreen !== "point" ||
+      appState.rewardState.attendedDatesKst.includes(
+        appState.rewardState.stateDateKst,
+      )
+    ) {
+      return;
+    }
+
+    preloadAttendanceInterstitialAd();
+  }, [
+    appState.currentScreen,
+    appState.restoreStatus,
+    appState.rewardState.attendedDatesKst,
+    appState.rewardState.stateDateKst,
+    preloadAttendanceInterstitialAd,
+  ]);
+
+  useEffect(() => {
+    return () => {
+      attendanceInterstitialAdGatewayRef.current.dispose();
+    };
+  }, []);
+
   const readyContent =
     appState.currentScreen === "point" ? (
       <PointScreen
         appState={appState}
         onBack={() => setAppState(openHomeScreen(appState))}
+        onRequestAttendance={handleSubmitAttendance}
       />
     ) : (
       <HomeScreen
@@ -250,10 +340,9 @@ function Page() {
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.header}>
-          <Text style={styles.title}>산소킴</Text>
-          <Text style={styles.subtitle}>
-            시간이 지나면 산소 상자가 쌓이고, 상자를 열면 토스 포인트를 받을 수 있어요
-          </Text>
+          <Txt style={styles.title}>
+            어차피 마시는 공기, 포인트까지
+          </Txt>
         </View>
 
         {appState.bannerMessage == null ? null : (
@@ -333,16 +422,11 @@ const styles = StyleSheet.create({
     marginBottom: 18,
   },
   title: {
-    fontSize: 30,
-    fontWeight: "900",
+    fontSize: 28,
+    fontWeight: "800",
     color: "#191F28",
+    lineHeight: 36,
     textAlign: "center",
-  },
-  subtitle: {
-    fontSize: 15,
-    color: "#6B7684",
-    textAlign: "center",
-    lineHeight: 24,
   },
   banner: {
     paddingVertical: 12,

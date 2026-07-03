@@ -3,10 +3,12 @@
 import { SANSOKIM_POLICY } from "./sansokimPolicy";
 import {
   accrueBoxes,
+  applyAttendanceBoxReward,
   applyBoostAfterRewardAd,
   applyBoxOpenRewardSuccess,
   createInitialRewardState,
   getBoxOpenRewardDecision,
+  getNextBoxAccrualProgress,
   rolloverDailyState,
   type RewardState,
 } from "./sansokimRewardPolicy";
@@ -27,6 +29,7 @@ describe("sansokimRewardPolicy", () => {
     expect(state.availableBoxCount).toBe(0);
     expect(state.dailyPaidTossPoint).toBe(0);
     expect(state.dailyBoostUsedCount).toBe(0);
+    expect(state.attendedDatesKst).toEqual([]);
     expect(state.boostEndsAtMs).toBeNull();
     expect(state.completedRewardKeys).toEqual([]);
   });
@@ -38,15 +41,57 @@ describe("sansokimRewardPolicy", () => {
     expect(state.accrualRemainderBoxUnits).toBe(0);
   });
 
+  it("returns next box accrual progress from elapsed time", () => {
+    expect(getNextBoxAccrualProgress(createInitialRewardState(0), 0)).toBe(0);
+
+    const halfHourState = accrueBoxes(
+      createInitialRewardState(0),
+      HOUR_MS / 2,
+    );
+    expect(getNextBoxAccrualProgress(halfHourState, HOUR_MS / 2)).toBe(0.5);
+
+    const almostOneHourState = accrueBoxes(
+      createInitialRewardState(0),
+      HOUR_MS - 1,
+    );
+    expect(
+      getNextBoxAccrualProgress(almostOneHourState, HOUR_MS - 1),
+    ).toBeCloseTo(1, 5);
+
+    const oneHourState = accrueBoxes(createInitialRewardState(0), HOUR_MS);
+    expect(getNextBoxAccrualProgress(oneHourState, HOUR_MS)).toBe(0);
+  });
+
+  it("returns full progress when box storage is full", () => {
+    expect(
+      getNextBoxAccrualProgress(
+        createRewardState({
+          availableBoxCount: SANSOKIM_POLICY.maxStoredBoxCount,
+        }),
+        0,
+      ),
+    ).toBe(1);
+  });
+
+  it("accrues next box progress twice as fast while boost is active", () => {
+    const boostResult = applyBoostAfterRewardAd(createInitialRewardState(0), 0);
+    if (boostResult.type !== "applied") {
+      throw new Error("Boost should be applied");
+    }
+
+    const boostedState = accrueBoxes(boostResult.state, HOUR_MS / 4);
+    expect(getNextBoxAccrualProgress(boostedState, HOUR_MS / 4)).toBe(0.5);
+  });
+
   it("caps offline accrual at 100 hours", () => {
     const state = accrueBoxes(createInitialRewardState(0), 101 * HOUR_MS);
 
     expect(state.availableBoxCount).toBe(100);
   });
 
-  it("does not store more than 200 boxes", () => {
+  it("does not store more than the policy max box count", () => {
     const state = accrueBoxes(
-      createRewardState({ availableBoxCount: 199 }),
+      createRewardState({ availableBoxCount: 999 }),
       10 * HOUR_MS,
     );
 
@@ -107,6 +152,7 @@ describe("sansokimRewardPolicy", () => {
         stateDateKst: "2026-06-18",
         dailyPaidTossPoint: 50,
         dailyBoostUsedCount: 7,
+        attendedDatesKst: ["2026-06-18"],
       }),
       "2026-06-19",
     );
@@ -114,6 +160,65 @@ describe("sansokimRewardPolicy", () => {
     expect(state.stateDateKst).toBe("2026-06-19");
     expect(state.dailyPaidTossPoint).toBe(0);
     expect(state.dailyBoostUsedCount).toBe(0);
+    expect(state.attendedDatesKst).toEqual(["2026-06-18"]);
+  });
+
+  it("resets attendance dates when the KST month changes", () => {
+    const state = rolloverDailyState(
+      createRewardState({
+        stateDateKst: "2026-06-30",
+        attendedDatesKst: ["2026-06-30"],
+      }),
+      "2026-07-01",
+    );
+
+    expect(state.attendedDatesKst).toEqual([]);
+  });
+
+  it("grants one box and marks attendance once per KST day", () => {
+    const result = applyAttendanceBoxReward(createRewardState(), 0);
+
+    expect(result.type).toBe("applied");
+    if (result.type !== "applied") {
+      throw new Error("Attendance should be applied");
+    }
+    expect(result.state.availableBoxCount).toBe(1);
+    expect(result.state.attendedDatesKst).toEqual(["1970-01-01"]);
+  });
+
+  it("blocks duplicate attendance without adding boxes", () => {
+    const result = applyAttendanceBoxReward(
+      createRewardState({
+        availableBoxCount: 3,
+        attendedDatesKst: ["1970-01-01"],
+      }),
+      0,
+    );
+
+    expect(result.type).toBe("blocked");
+    if (result.type !== "blocked") {
+      throw new Error("Attendance should be blocked");
+    }
+    expect(result.reason).toBe("alreadyAttended");
+    expect(result.state.availableBoxCount).toBe(3);
+    expect(result.state.attendedDatesKst).toEqual(["1970-01-01"]);
+  });
+
+  it("blocks attendance when box storage is full without marking attendance", () => {
+    const result = applyAttendanceBoxReward(
+      createRewardState({
+        availableBoxCount: SANSOKIM_POLICY.maxStoredBoxCount,
+      }),
+      0,
+    );
+
+    expect(result.type).toBe("blocked");
+    if (result.type !== "blocked") {
+      throw new Error("Attendance should be blocked");
+    }
+    expect(result.reason).toBe("boxStorageFull");
+    expect(result.state.availableBoxCount).toBe(SANSOKIM_POLICY.maxStoredBoxCount);
+    expect(result.state.attendedDatesKst).toEqual([]);
   });
 
   it("blocks box open reward when there are no boxes", () => {

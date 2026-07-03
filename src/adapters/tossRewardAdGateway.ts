@@ -20,6 +20,7 @@ export type RewardAdGateway = {
 
 export function createTossRewardAdGateway(adGroupId: string): RewardAdGateway {
   let loadedAdGroupId: string | null = null;
+  let loadingPromise: Promise<RewardAdLoadResult> | null = null;
 
   return {
     async load(): Promise<RewardAdLoadResult> {
@@ -27,10 +28,21 @@ export function createTossRewardAdGateway(adGroupId: string): RewardAdGateway {
         return { type: "loaded" };
       }
 
-      const result = await loadTossRewardAd(adGroupId);
-      loadedAdGroupId = result.type === "loaded" ? adGroupId : null;
+      if (loadingPromise != null) {
+        return loadingPromise;
+      }
 
-      return result;
+      loadingPromise = loadTossRewardAd(adGroupId)
+        .then((result) => {
+          loadedAdGroupId = result.type === "loaded" ? adGroupId : null;
+
+          return result;
+        })
+        .finally(() => {
+          loadingPromise = null;
+        });
+
+      return loadingPromise;
     },
     async show(): Promise<RewardedAdResult> {
       if (loadedAdGroupId == null) {

@@ -62,6 +62,26 @@ describe("tossRewardAdGateway", () => {
     await expect(gateway.show()).resolves.toEqual({ type: "earnedReward" });
   });
 
+  it("reuses an in-flight reward ad load", async () => {
+    let loadHandler: FullScreenAdHandler | null = null;
+    loadFullScreenAdMock.mockImplementation((handler) => {
+      loadHandler = handler;
+      return jest.fn();
+    });
+    const gateway = createTossRewardAdGateway("ad-group-1");
+
+    const firstLoad = gateway.load();
+    const secondLoad = gateway.load();
+
+    expect(loadFullScreenAdMock).toHaveBeenCalledTimes(1);
+    loadHandler?.onEvent({ type: "loaded" });
+
+    await expect(firstLoad).resolves.toEqual({ type: "loaded" });
+    await expect(secondLoad).resolves.toEqual({ type: "loaded" });
+    await expect(gateway.load()).resolves.toEqual({ type: "loaded" });
+    expect(loadFullScreenAdMock).toHaveBeenCalledTimes(1);
+  });
+
   it("treats dismissed ads as non-success", async () => {
     loadFullScreenAdMock.mockImplementation((handler) => {
       handler.onEvent({ type: "loaded" });

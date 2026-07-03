@@ -7,6 +7,7 @@ export type RewardState = {
   readonly availableBoxCount: number;
   readonly dailyPaidTossPoint: number;
   readonly dailyBoostUsedCount: number;
+  readonly attendedDatesKst: readonly string[];
   readonly lastAccruedAtMs: number;
   readonly boostEndsAtMs: number | null;
   readonly accrualRemainderBoxUnits: number;
@@ -21,6 +22,14 @@ export type StoredRewardState = RewardState & {
 export type BoostApplyResult =
   | { readonly type: "applied"; readonly state: RewardState }
   | { readonly type: "blocked"; readonly reason: "dailyLimitReached" };
+
+export type AttendanceBoxRewardResult =
+  | { readonly type: "applied"; readonly state: RewardState }
+  | {
+      readonly type: "blocked";
+      readonly reason: "alreadyAttended" | "boxStorageFull";
+      readonly state: RewardState;
+    };
 
 export type BoxOpenRewardDecision =
   | { readonly type: "ready"; readonly amount: number }
@@ -49,6 +58,7 @@ export function createInitialRewardState(
     availableBoxCount: 0,
     dailyPaidTossPoint: 0,
     dailyBoostUsedCount: 0,
+    attendedDatesKst: [],
     lastAccruedAtMs: nowMs,
     boostEndsAtMs: null,
     accrualRemainderBoxUnits: 0,
@@ -69,6 +79,9 @@ export function rolloverDailyState(
     stateDateKst: currentDateKst,
     dailyPaidTossPoint: 0,
     dailyBoostUsedCount: 0,
+    attendedDatesKst: isSameKstMonth(state.stateDateKst, currentDateKst)
+      ? state.attendedDatesKst
+      : filterAttendanceDatesForMonth(state.attendedDatesKst, currentDateKst),
   };
 }
 
@@ -110,18 +123,43 @@ export function accrueBoxes(state: RewardState, nowMs: number): RewardState {
   };
 }
 
+export function getNextBoxAccrualIntervalMs(
+  state: RewardState,
+  nowMs: number,
+): number | null {
+  if (state.availableBoxCount >= SANSOKIM_POLICY.maxStoredBoxCount) {
+    return null;
+  }
+
+  const isBoosted = state.boostEndsAtMs != null && state.boostEndsAtMs > nowMs;
+  return isBoosted
+    ? SANSOKIM_POLICY.boxAccrualIntervalMs / SANSOKIM_POLICY.boostMultiplier
+    : SANSOKIM_POLICY.boxAccrualIntervalMs;
+}
+
+export function getNextBoxAccrualProgress(
+  state: RewardState,
+  nowMs: number,
+): number {
+  const intervalMs = getNextBoxAccrualIntervalMs(state, nowMs);
+  if (intervalMs == null) {
+    return 1;
+  }
+
+  const remainingMs = getNextBoxRemainingMs(state, nowMs);
+
+  return Math.min(1, Math.max(0, 1 - remainingMs / intervalMs));
+}
+
 export function getNextBoxRemainingMs(
   state: RewardState,
   nowMs: number,
 ): number {
-  if (state.availableBoxCount >= SANSOKIM_POLICY.maxStoredBoxCount) {
+  const intervalMs = getNextBoxAccrualIntervalMs(state, nowMs);
+  if (intervalMs == null) {
     return 0;
   }
 
-  const isBoosted = state.boostEndsAtMs != null && state.boostEndsAtMs > nowMs;
-  const intervalMs = isBoosted
-    ? SANSOKIM_POLICY.boxAccrualIntervalMs / SANSOKIM_POLICY.boostMultiplier
-    : SANSOKIM_POLICY.boxAccrualIntervalMs;
   const remainderMs = state.accrualRemainderBoxUnits * intervalMs;
 
   return Math.max(0, intervalMs - remainderMs);
@@ -149,6 +187,44 @@ export function applyBoostAfterRewardAd(
       ...accruedState,
       boostEndsAtMs: extensionBaseMs + SANSOKIM_POLICY.boostDurationMs,
       dailyBoostUsedCount: accruedState.dailyBoostUsedCount + 1,
+      lastAccruedAtMs: nowMs,
+    },
+  };
+}
+
+export function applyAttendanceBoxReward(
+  state: RewardState,
+  nowMs: number,
+): AttendanceBoxRewardResult {
+  const currentDateKst = getKstDateString(nowMs);
+  const rolledOverState = rolloverDailyState(state, currentDateKst);
+  const accruedState = accrueBoxes(rolledOverState, nowMs);
+
+  if (accruedState.attendedDatesKst.includes(currentDateKst)) {
+    return {
+      type: "blocked",
+      reason: "alreadyAttended",
+      state: accruedState,
+    };
+  }
+
+  if (accruedState.availableBoxCount >= SANSOKIM_POLICY.maxStoredBoxCount) {
+    return {
+      type: "blocked",
+      reason: "boxStorageFull",
+      state: accruedState,
+    };
+  }
+
+  return {
+    type: "applied",
+    state: {
+      ...accruedState,
+      availableBoxCount: accruedState.availableBoxCount + 1,
+      attendedDatesKst: appendAttendanceDate(
+        accruedState.attendedDatesKst,
+        currentDateKst,
+      ),
       lastAccruedAtMs: nowMs,
     },
   };
@@ -214,4 +290,28 @@ function appendCompletedRewardKey(
   key: string,
 ): readonly string[] {
   return [...keys, key].slice(-SANSOKIM_POLICY.maxCompletedRewardKeyCount);
+}
+
+function appendAttendanceDate(
+  dates: readonly string[],
+  dateKst: string,
+): readonly string[] {
+  if (dates.includes(dateKst)) {
+    return dates;
+  }
+
+  return [...dates, dateKst];
+}
+
+function isSameKstMonth(leftDateKst: string, rightDateKst: string): boolean {
+  return leftDateKst.slice(0, 7) === rightDateKst.slice(0, 7);
+}
+
+function filterAttendanceDatesForMonth(
+  dates: readonly string[],
+  currentDateKst: string,
+): readonly string[] {
+  const currentYearMonth = currentDateKst.slice(0, 7);
+
+  return dates.filter((dateKst) => dateKst.slice(0, 7) === currentYearMonth);
 }
