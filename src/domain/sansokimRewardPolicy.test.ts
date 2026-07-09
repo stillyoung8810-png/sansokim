@@ -110,7 +110,7 @@ describe("sansokimRewardPolicy", () => {
     expect(state.availableBoxCount).toBe(4);
   });
 
-  it("extends an active boost by another two hours", () => {
+  it("extends an active boost by another four hours", () => {
     const firstBoostResult = applyBoostAfterRewardAd(
       createInitialRewardState(0),
       0,
@@ -128,7 +128,7 @@ describe("sansokimRewardPolicy", () => {
     if (secondBoostResult.type !== "applied") {
       throw new Error("Second boost should be applied");
     }
-    expect(secondBoostResult.state.boostEndsAtMs).toBe(4 * HOUR_MS);
+    expect(secondBoostResult.state.boostEndsAtMs).toBe(8 * HOUR_MS);
     expect(secondBoostResult.state.dailyBoostUsedCount).toBe(2);
   });
 

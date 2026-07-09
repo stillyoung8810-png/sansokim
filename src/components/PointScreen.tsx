@@ -37,7 +37,7 @@ export function PointScreen({
     <View style={styles.section}>
       <View style={styles.headerCard}>
         <View>
-          <Text style={styles.eyebrow}>포인트 내역</Text>
+          <Text style={styles.eyebrow}>출석·내역</Text>
           <Text style={styles.title}>오늘 모은 산소킴 기록</Text>
         </View>
         <Pressable
@@ -85,7 +85,7 @@ export function PointScreen({
       <MetricGaugeCard
         title="오늘 부스트 사용"
         value={`${rewardState.dailyBoostUsedCount}회 / ${SANSOKIM_POLICY.maxDailyBoostUseCount}`}
-        description="부스트는 광고 시청 완료 후 2시간 적용돼요"
+        description="부스트는 광고 시청 완료 후 4시간 적용돼요"
         progress={getRatioProgress(
           rewardState.dailyBoostUsedCount,
           SANSOKIM_POLICY.maxDailyBoostUseCount,

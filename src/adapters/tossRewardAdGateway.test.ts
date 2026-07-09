@@ -13,6 +13,7 @@ import {
 } from "./tossRewardAdGateway";
 
 type FullScreenAdHandler = {
+  readonly options?: { readonly adGroupId: string };
   readonly onEvent: (event: { readonly type: string }) => void;
   readonly onError: () => void;
 };
@@ -47,7 +48,7 @@ describe("tossRewardAdGateway", () => {
     });
   });
 
-  it("loads then shows a rewarded ad successfully", async () => {
+  it("preloads then shows a rewarded ad successfully", async () => {
     loadFullScreenAdMock.mockImplementation((handler) => {
       handler.onEvent({ type: "loaded" });
       return jest.fn();
@@ -58,28 +59,68 @@ describe("tossRewardAdGateway", () => {
     });
     const gateway = createTossRewardAdGateway("ad-group-1");
 
-    await expect(gateway.load()).resolves.toEqual({ type: "loaded" });
-    await expect(gateway.show()).resolves.toEqual({ type: "earnedReward" });
+    await expect(gateway.preloadNext()).resolves.toEqual({ type: "loaded" });
+    await expect(gateway.showPreloaded()).resolves.toEqual({
+      type: "earnedReward",
+    });
+  });
+
+  it("rotates rewarded ad group ids after earned rewards", async () => {
+    loadFullScreenAdMock.mockImplementation((handler) => {
+      handler.onEvent({ type: "loaded" });
+      return jest.fn();
+    });
+    showFullScreenAdMock.mockImplementation((handler) => {
+      handler.onEvent({ type: "userEarnedReward" });
+      return jest.fn();
+    });
+    const gateway = createTossRewardAdGateway(["ad-group-1", "ad-group-2"]);
+
+    await expect(gateway.preloadNext()).resolves.toEqual({ type: "loaded" });
+    expect(getLoadedAdGroupId(0)).toBe("ad-group-1");
+    await expect(gateway.showPreloaded()).resolves.toEqual({
+      type: "earnedReward",
+    });
+
+    await expect(gateway.preloadNext()).resolves.toEqual({ type: "loaded" });
+    expect(getLoadedAdGroupId(1)).toBe("ad-group-2");
+    await expect(gateway.showPreloaded()).resolves.toEqual({
+      type: "earnedReward",
+    });
+
+    await expect(gateway.preloadNext()).resolves.toEqual({ type: "loaded" });
+    expect(getLoadedAdGroupId(2)).toBe("ad-group-1");
   });
 
   it("reuses an in-flight reward ad load", async () => {
-    let loadHandler: FullScreenAdHandler | null = null;
+    const loadHandlerRef: { current?: FullScreenAdHandler } = {};
     loadFullScreenAdMock.mockImplementation((handler) => {
-      loadHandler = handler;
+      loadHandlerRef.current = handler;
       return jest.fn();
     });
     const gateway = createTossRewardAdGateway("ad-group-1");
 
-    const firstLoad = gateway.load();
-    const secondLoad = gateway.load();
+    const firstLoad = gateway.preloadNext();
+    const secondLoad = gateway.preloadNext();
 
     expect(loadFullScreenAdMock).toHaveBeenCalledTimes(1);
-    loadHandler?.onEvent({ type: "loaded" });
+    const loadHandler = loadHandlerRef.current;
+    if (loadHandler == null) {
+      throw new Error("loadFullScreenAd was not called");
+    }
+    loadHandler.onEvent({ type: "loaded" });
 
     await expect(firstLoad).resolves.toEqual({ type: "loaded" });
     await expect(secondLoad).resolves.toEqual({ type: "loaded" });
-    await expect(gateway.load()).resolves.toEqual({ type: "loaded" });
+    await expect(gateway.preloadNext()).resolves.toEqual({ type: "loaded" });
     expect(loadFullScreenAdMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not show before a rewarded ad is loaded", async () => {
+    const gateway = createTossRewardAdGateway("ad-group-1");
+
+    await expect(gateway.showPreloaded()).resolves.toEqual({ type: "failed" });
+    expect(showFullScreenAdMock).not.toHaveBeenCalled();
   });
 
   it("treats dismissed ads as non-success", async () => {
@@ -93,8 +134,31 @@ describe("tossRewardAdGateway", () => {
     });
     const gateway = createTossRewardAdGateway("ad-group-1");
 
-    await gateway.load();
-    await expect(gateway.show()).resolves.toEqual({ type: "dismissed" });
+    await gateway.preloadNext();
+    await expect(gateway.showPreloaded()).resolves.toEqual({
+      type: "dismissed",
+    });
+  });
+
+  it("keeps the current rewarded ad group id when the ad is dismissed", async () => {
+    loadFullScreenAdMock.mockImplementation((handler) => {
+      handler.onEvent({ type: "loaded" });
+      return jest.fn();
+    });
+    showFullScreenAdMock.mockImplementation((handler) => {
+      handler.onEvent({ type: "dismissed" });
+      return jest.fn();
+    });
+    const gateway = createTossRewardAdGateway(["ad-group-1", "ad-group-2"]);
+
+    await expect(gateway.preloadNext()).resolves.toEqual({ type: "loaded" });
+    expect(getLoadedAdGroupId(0)).toBe("ad-group-1");
+    await expect(gateway.showPreloaded()).resolves.toEqual({
+      type: "dismissed",
+    });
+
+    await expect(gateway.preloadNext()).resolves.toEqual({ type: "loaded" });
+    expect(getLoadedAdGroupId(1)).toBe("ad-group-1");
   });
 
   it("treats failedToShow as failed", async () => {
@@ -108,8 +172,8 @@ describe("tossRewardAdGateway", () => {
     });
     const gateway = createTossRewardAdGateway("ad-group-1");
 
-    await gateway.load();
-    await expect(gateway.show()).resolves.toEqual({ type: "failed" });
+    await gateway.preloadNext();
+    await expect(gateway.showPreloaded()).resolves.toEqual({ type: "failed" });
   });
 
   it("fails when loading errors", async () => {
@@ -119,7 +183,18 @@ describe("tossRewardAdGateway", () => {
     });
     const gateway = createTossRewardAdGateway("ad-group-1");
 
-    await expect(gateway.load()).resolves.toEqual({ type: "failed" });
-    await expect(gateway.show()).resolves.toEqual({ type: "failed" });
+    await expect(gateway.preloadNext()).resolves.toEqual({ type: "failed" });
+    await expect(gateway.showPreloaded()).resolves.toEqual({ type: "failed" });
   });
 });
+
+function getLoadedAdGroupId(callIndex: number): string {
+  const params = loadFullScreenAdMock.mock.calls[callIndex]?.[0];
+  const adGroupId = params?.options?.adGroupId;
+
+  if (adGroupId == null) {
+    throw new Error("loadFullScreenAd was not called with an ad group id");
+  }
+
+  return adGroupId;
+}

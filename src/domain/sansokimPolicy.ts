@@ -8,7 +8,7 @@ export const SANSOKIM_POLICY = {
   tossPointPerBoxOpen: 1,
   maxDailyTossPoint: 300,
   boostMultiplier: 2,
-  boostDurationMs: 2 * 60 * 60 * 1_000,
+  boostDurationMs: 4 * 60 * 60 * 1_000,
   maxDailyBoostUseCount: 12,
   maxCompletedRewardKeyCount: 1_000,
 } as const;

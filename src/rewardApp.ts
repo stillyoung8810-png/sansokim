@@ -28,6 +28,14 @@ type RewardAdGateway = {
     | { readonly type: "dismissed" }
     | { readonly type: "failed" }
   >;
+  readonly preloadNext: () => Promise<
+    { readonly type: "loaded" } | { readonly type: "failed" }
+  >;
+  readonly showPreloaded: () => Promise<
+    | { readonly type: "earnedReward" }
+    | { readonly type: "dismissed" }
+    | { readonly type: "failed" }
+  >;
 };
 
 type TossPointPromotionGateway = {
@@ -382,7 +390,7 @@ export async function finishBoxOpenOpportunityRequestWithGateway(params: {
   readonly rewardAdGateway: RewardAdGateway;
   readonly nowMs: number;
 }): Promise<GatewayBoxOpenOpportunityResult> {
-  const adResult = await showRewardAdForReward(params.rewardAdGateway);
+  const adResult = await showPreloadedRewardAdForReward(params.rewardAdGateway);
 
   if (adResult.type === "failed") {
     return {
@@ -490,7 +498,7 @@ export async function finishBoostRequestWithGateway(params: {
         savedAt: new Date(params.nowMs).toISOString(),
       }),
       isBoostRequesting: false,
-      bannerMessage: "2시간 부스트가 적용됐어요.",
+      bannerMessage: "4시간 부스트가 적용됐어요.",
     },
   };
 }
@@ -552,7 +560,7 @@ export function applyMockBoost(
         rewardState: result.state,
         savedAt: new Date(nowMs).toISOString(),
       }),
-      bannerMessage: "2시간 부스트가 적용됐어요.",
+      bannerMessage: "4시간 부스트가 적용됐어요.",
     },
   };
 }
@@ -781,6 +789,27 @@ async function showRewardAdForReward(
   }
 
   const showResult = await rewardAdGateway.show();
+
+  if (showResult.type !== "earnedReward") {
+    return { type: "failed", reason: "adNotCompleted" };
+  }
+
+  return { type: "earnedReward" };
+}
+
+async function showPreloadedRewardAdForReward(
+  rewardAdGateway: RewardAdGateway,
+): Promise<
+  | { readonly type: "earnedReward" }
+  | { readonly type: "failed"; readonly reason: "adLoadFailed" | "adNotCompleted" }
+> {
+  const preloadResult = await rewardAdGateway.preloadNext();
+
+  if (preloadResult.type !== "loaded") {
+    return { type: "failed", reason: "adLoadFailed" };
+  }
+
+  const showResult = await rewardAdGateway.showPreloaded();
 
   if (showResult.type !== "earnedReward") {
     return { type: "failed", reason: "adNotCompleted" };

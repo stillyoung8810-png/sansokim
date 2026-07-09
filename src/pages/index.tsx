@@ -53,7 +53,7 @@ function Page() {
   const actionInFlightRef = useRef(false);
   const boxOpenOpportunityRewardAdGatewayRef = useRef(
     createTossRewardAdGateway(
-      sansokimRewardAdConfig.boxOpenOpportunityAdGroupId,
+      sansokimRewardAdConfig.boxOpenOpportunityAdGroupIds,
     ),
   );
   const boostRewardAdGatewayRef = useRef(
@@ -86,7 +86,7 @@ function Page() {
   }, [appState, applyAndPersistState]);
 
   const preloadBoxOpenOpportunityRewardAd = useCallback(() => {
-    void boxOpenOpportunityRewardAdGatewayRef.current.load();
+    void boxOpenOpportunityRewardAdGatewayRef.current.preloadNext();
   }, []);
 
   const preloadAttendanceInterstitialAd = useCallback(() => {
@@ -130,9 +130,8 @@ function Page() {
       await applyAndPersistState(result.state);
     } finally {
       actionInFlightRef.current = false;
-      preloadBoxOpenOpportunityRewardAd();
     }
-  }, [appState, applyAndPersistState, preloadBoxOpenOpportunityRewardAd]);
+  }, [appState, applyAndPersistState]);
 
   const handleApplyBoost = useCallback(async () => {
     if (actionInFlightRef.current) {
@@ -277,13 +276,20 @@ function Page() {
   }, []);
 
   useEffect(() => {
-    if (appState.restoreStatus !== "ready" || appState.currentScreen !== "home") {
+    if (
+      appState.restoreStatus !== "ready" ||
+      appState.currentScreen !== "home" ||
+      appState.boxOpenOpportunity != null ||
+      appState.isBoxOpenOpportunityRequesting
+    ) {
       return;
     }
 
     preloadBoxOpenOpportunityRewardAd();
   }, [
+    appState.boxOpenOpportunity,
     appState.currentScreen,
+    appState.isBoxOpenOpportunityRequesting,
     appState.restoreStatus,
     preloadBoxOpenOpportunityRewardAd,
   ]);
@@ -310,6 +316,8 @@ function Page() {
 
   useEffect(() => {
     return () => {
+      boxOpenOpportunityRewardAdGatewayRef.current.dispose();
+      boostRewardAdGatewayRef.current.dispose();
       attendanceInterstitialAdGatewayRef.current.dispose();
     };
   }, []);
@@ -335,7 +343,14 @@ function Page() {
 
   return (
     <View style={styles.root}>
+      {appState.bannerMessage == null ? null : (
+        <View style={styles.banner}>
+          <Text style={styles.bannerText}>{appState.bannerMessage}</Text>
+        </View>
+      )}
+
       <ScrollView
+        style={styles.scrollView}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
@@ -344,12 +359,6 @@ function Page() {
             어차피 마시는 공기, 포인트까지
           </Txt>
         </View>
-
-        {appState.bannerMessage == null ? null : (
-          <View style={styles.banner}>
-            <Text style={styles.bannerText}>{appState.bannerMessage}</Text>
-          </View>
-        )}
 
         {appState.restoreStatus === "loading" ? (
           <View style={styles.loadingCard}>
@@ -411,6 +420,9 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: "#F2F4F6",
   },
+  scrollView: {
+    flex: 1,
+  },
   scrollContent: {
     paddingHorizontal: 20,
     paddingTop: 28,
@@ -433,7 +445,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     borderRadius: 16,
     backgroundColor: "#E8F3FF",
-    marginBottom: 14,
+    marginTop: 14,
+    marginHorizontal: 20,
   },
   bannerText: {
     fontSize: 14,

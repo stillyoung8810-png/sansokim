@@ -91,9 +91,14 @@ function createRewardAdGateway(params: {
   readonly loadType?: "loaded" | "failed";
   readonly showType?: "earnedReward" | "dismissed" | "failed";
 }) {
+  const load = jest.fn(async () => ({ type: params.loadType ?? "loaded" }) as const);
+  const show = jest.fn(async () => ({ type: params.showType ?? "earnedReward" }) as const);
+
   return {
-    load: jest.fn(async () => ({ type: params.loadType ?? "loaded" }) as const),
-    show: jest.fn(async () => ({ type: params.showType ?? "earnedReward" }) as const),
+    load,
+    show,
+    preloadNext: load,
+    showPreloaded: show,
   };
 }
 
@@ -205,7 +210,7 @@ describe("rewardApp", () => {
     });
   });
 
-  it("applies a mock two-hour boost", () => {
+  it("applies a mock four-hour boost", () => {
     const result = applyMockBoost(createReadyState({}), 1_000);
 
     expect(result.type).toBe("applied");

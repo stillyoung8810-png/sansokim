@@ -116,14 +116,14 @@ export function HomeScreen({
           </View>
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel="포인트 내역"
+            accessibilityLabel="출석·내역"
             onPress={onOpenPointScreen}
             style={({ pressed }) => [
               styles.secondaryButton,
               pressed ? styles.pressed : null,
             ]}
           >
-            <Text style={styles.secondaryButtonText}>포인트 내역</Text>
+            <Text style={styles.secondaryButtonText}>출석·내역</Text>
           </Pressable>
         </View>
 
@@ -178,7 +178,7 @@ export function HomeScreen({
 
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel="2시간 부스트 받기"
+            accessibilityLabel="4시간 부스트 받기"
             onPress={onRequestBoost}
             style={({ pressed }) => [
               styles.boostButton,
@@ -187,7 +187,7 @@ export function HomeScreen({
             ]}
             disabled={isBoostButtonDisabled}
           >
-            <Text style={styles.boostButtonText}>2시간 부스트 받기</Text>
+            <Text style={styles.boostButtonText}>4시간 부스트 받기</Text>
             <Text style={styles.boostButtonSubtext}>
               광고 시청 후 부스트 적용
             </Text>

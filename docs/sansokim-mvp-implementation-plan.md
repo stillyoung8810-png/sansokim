@@ -59,7 +59,7 @@
 - 상자 열기 기회: 리워드 광고 1회 시청 완료 시 1회
 - 상자 열기 기회 보유 한도: 최대 1회
 - 부스트 효과: 산소 상자 적립 속도 2배
-- 부스트 지속 시간: 리워드 광고 1회 시청 완료당 2시간
+- 부스트 지속 시간: 리워드 광고 1회 시청 완료당 4시간
 - 하루 부스트 사용 횟수: 12회
 - 부스트 누적 연장: 가능
 - 부스트는 앱 종료 중에도 적용
@@ -119,7 +119,7 @@
 ```
 
 ```text
-2시간 부스트 받기
+4시간 부스트 받기
 광고 시청 후 부스트 적용
 ```
 
@@ -152,7 +152,7 @@
 오늘은 최대 300원까지 받을 수 있어요
 상자 열기 기회 받기
 광고 시청 후 상자 열기 기회 1회 지급
-2시간 부스트 받기
+4시간 부스트 받기
 광고 시청 후 부스트 적용
 본 프로모션은 예산 소진 등으로 사전 고지 없이 중단될 수 있어요
 ```
@@ -212,7 +212,7 @@ export const SANSOKIM_POLICY = {
   tossPointPerBoxOpen: 1,
   maxDailyTossPoint: 300,
   boostMultiplier: 2,
-  boostDurationMs: 2 * 60 * 60 * 1_000,
+  boostDurationMs: 4 * 60 * 60 * 1_000,
   maxDailyBoostUseCount: 12,
   maxCompletedRewardKeyCount: 1_000,
 } as const;
@@ -1028,7 +1028,7 @@ export async function executeBoxOpenPayout(params: {
 - `골드 지갑` 버튼을 `포인트 내역` 버튼으로 변경
 - `일반 상자` 문구를 `산소 상자`로 변경
 - `골드` 문구 제거
-- 카드 하단에 `상자 열기 기회 받기`, `2시간 부스트 받기` 버튼 배치
+- 카드 하단에 `상자 열기 기회 받기`, `4시간 부스트 받기` 버튼 배치
 - 버튼 아래 CTA 설명 문구 추가
 
 상태별 안내 문구 예시:
@@ -1042,7 +1042,7 @@ export const sansokimMessages = {
   payoutPending: "토스 포인트를 지급하고 있어요",
   opportunityButton: "상자 열기 기회 받기",
   opportunityCta: "광고 시청 후 상자 열기 기회 1회 지급",
-  boostButton: "2시간 부스트 받기",
+  boostButton: "4시간 부스트 받기",
   boostCta: "광고 시청 후 부스트 적용",
   promotionNotice: "본 프로모션은 예산 소진 등으로 사전 고지 없이 중단될 수 있어요",
 } as const;
@@ -1126,8 +1126,8 @@ export function getDailyBoostProgress(state: RewardState): number {
 - 1시간 경과 시 상자 1개 적립
 - 100시간 초과 오프라인 시 최대 100시간까지만 적립
 - 보유 상자는 1000개를 초과하지 않음
-- 부스트 2시간 적용 시 2시간 동안 상자 4개 적립
-- 부스트 중 추가 적용 시 종료 시간이 2시간 누적 연장
+- 부스트 4시간 적용 시 4시간 동안 상자 8개 적립
+- 부스트 중 추가 적용 시 종료 시간이 4시간 누적 연장
 - 하루 부스트 12회 초과 시 차단
 - KST 날짜가 바뀌면 오늘 지급 금액과 부스트 사용 횟수 리셋
 - 상자 탭은 4회 완료 시에만 `completed`
